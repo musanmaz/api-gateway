@@ -1,0 +1,210 @@
+name: gateway-control
+
+networks:
+  mgmt:
+  data:
+
+volumes:
+  pgdata:
+  agentstate:
+  agentstate2:
+  xds:
+  xds2:
+  web_modules:
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18.6-bookworm@sha256:bbf83594798e144bff365a9c191c5d779f181fb3135902064ab8ff11918020fc
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway-dev
+      POSTGRES_DB: gateway
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [mgmt]
+    logging: *logging
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: api
+    environment:
+      DATABASE_URL: postgres://gateway:gateway-dev@postgres:5432/gateway?sslmode=disable
+      GATEWAY_OPERATOR_TOKEN_FILE: /etc/gateway/operator.token
+      GATEWAY_VIEWER_TOKEN_FILE: /etc/gateway/viewer.token
+      GATEWAY_AGENT_TOKEN_FILE: /etc/gateway/agent.token
+      GATEWAY_SIGNING_KEY_FILE: /etc/gateway/ed25519.key
+      GATEWAY_TRY_URL: http://127.0.0.1:10000
+      LISTEN_ADDR: ":8080"
+    volumes:
+      - ../../.local/operator.token:/etc/gateway/operator.token:ro
+      - ../../.local/viewer.token:/etc/gateway/viewer.token:ro
+      - ../../.local/agent.token:/etc/gateway/agent.token:ro
+      - ../../.local/keys/ed25519.key:/etc/gateway/ed25519.key:ro
+    ports:
+      - "127.0.0.1:9080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [mgmt]
+    logging: *logging
+
+  agent:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: agent
+    environment:
+      CONTROL_URL: http://api:8080
+      NODE_NAME: gw-local-1
+      AGENT_TOKEN_FILE: /etc/gateway/agent.token
+      PUBKEY_FILE: /etc/gateway/ed25519.pub
+      STATE_DIR: /var/lib/gateway-agent
+      XDS_SOCKET: /var/run/gateway/xds.sock
+      DATA_PLANE_URL: http://envoy:10000
+      TLS_CERT_FILE: /etc/gateway/certs/server.crt
+      TLS_KEY_FILE: /etc/gateway/certs/server.key
+    volumes:
+      - ../../.local/agent.token:/etc/gateway/agent.token:ro
+      - ../../.local/keys/ed25519.pub:/etc/gateway/ed25519.pub:ro
+      - ../../.local/certs:/etc/gateway/certs:ro
+      - agentstate:/var/lib/gateway-agent
+      - xds:/var/run/gateway
+    depends_on:
+      - api
+    networks: [mgmt, data]
+    logging: *logging
+
+  envoy:
+    image: envoyproxy/envoy:distroless-v1.40.0@sha256:23b72ac1fa94908b2ca7ebf194cc6083cd0d4913210c7d7453e4b2008ca26c84
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes:
+      - ../../deploy/envoy/bootstrap.yaml:/etc/envoy/envoy.yaml:ro
+      - xds:/var/run/gateway
+    ports:
+      - "127.0.0.1:10010:10000"
+      - "127.0.0.1:18443:8443"
+      - "127.0.0.1:10012:10002"
+      - "127.0.0.1:10013:10003"
+      - "127.0.0.1:10014:10004"
+      - "127.0.0.1:10015:10005"
+      - "127.0.0.1:10020:10020"
+      - "127.0.0.1:10021:10021/udp"
+      - "127.0.0.1:18444:8444"
+    depends_on:
+      - agent
+    networks: [data]
+    logging: *logging
+
+  agent-2:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: agent
+    environment:
+      CONTROL_URL: http://api:8080
+      NODE_NAME: gw-local-2
+      AGENT_TOKEN_FILE: /etc/gateway/agent.token
+      PUBKEY_FILE: /etc/gateway/ed25519.pub
+      STATE_DIR: /var/lib/gateway-agent
+      XDS_SOCKET: /var/run/gateway/xds.sock
+      DATA_PLANE_URL: http://envoy-2:10000
+      TLS_CERT_FILE: /etc/gateway/certs/server.crt
+      TLS_KEY_FILE: /etc/gateway/certs/server.key
+    volumes:
+      - ../../.local/agent.token:/etc/gateway/agent.token:ro
+      - ../../.local/keys/ed25519.pub:/etc/gateway/ed25519.pub:ro
+      - ../../.local/certs:/etc/gateway/certs:ro
+      - agentstate2:/var/lib/gateway-agent
+      - xds2:/var/run/gateway
+    depends_on:
+      - api
+    networks: [mgmt, data]
+    logging: *logging
+
+  envoy-2:
+    image: envoyproxy/envoy:distroless-v1.40.0@sha256:23b72ac1fa94908b2ca7ebf194cc6083cd0d4913210c7d7453e4b2008ca26c84
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes:
+      - ../../deploy/envoy/bootstrap-2.yaml:/etc/envoy/envoy.yaml:ro
+      - xds2:/var/run/gateway
+    ports:
+      - "127.0.0.1:10011:10000"
+    depends_on:
+      - agent-2
+    networks: [data]
+    logging: *logging
+
+  edge:
+    image: envoyproxy/envoy:distroless-v1.40.0@sha256:23b72ac1fa94908b2ca7ebf194cc6083cd0d4913210c7d7453e4b2008ca26c84
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes:
+      - ../../deploy/envoy/edge.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "127.0.0.1:10000:10000"
+    depends_on:
+      - envoy
+      - envoy-2
+    networks: [data]
+    logging: *logging
+
+  backend-a:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: backend
+    environment:
+      INSTANCE: backend-a
+      PORT: "8080"
+      GRPC_ADDR: ":9095"
+      UDP_ADDR: ":8081"
+      TLS_ADDR: ":8445"
+      TLS_CERT_FILE: /etc/gateway/tls/passthrough.crt
+      TLS_KEY_FILE: /etc/gateway/tls/passthrough.key
+    volumes:
+      - ../../.local/certs/passthrough.crt:/etc/gateway/tls/passthrough.crt:ro
+      - ../../.local/certs/passthrough.key:/etc/gateway/tls/passthrough.key:ro
+    networks: [data]
+    logging: *logging
+
+  backend-b:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: backend
+    environment:
+      INSTANCE: backend-b
+      PORT: "8080"
+    networks: [data]
+    logging: *logging
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.web
+      target: dev
+    environment:
+      API_INTERNAL_URL: http://api:8080
+      HOSTNAME: "0.0.0.0"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ../../web:/src
+      - web_modules:/src/node_modules
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - api
+    networks: [mgmt]
+    logging: *logging

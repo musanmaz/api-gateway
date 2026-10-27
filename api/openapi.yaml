@@ -1,0 +1,240 @@
+openapi: 3.0.3
+info:
+  title: gateway-control management API
+  version: 0.1.0
+  description: Yönetim API'si. Kullanıcı trafiği bu sözleşmeden geçmez.
+servers:
+  - url: http://127.0.0.1:9080
+paths:
+  /healthz:
+    get:
+      summary: Süreç ayakta
+      responses:
+        "200":
+          description: ok
+  /readyz:
+    get:
+      summary: Veritabanı erişilebilir
+      responses:
+        "200":
+          description: ready
+        "503":
+          description: veritabanı yok
+  /api/v1/bootstrap:
+    get:
+      summary: Yerel ortam, ekip, filo ve protokol durumu
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: bağlam
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tryUrl:
+                    type: string
+                    description: GATEWAY_TRY_URL değerinden gelen scheme://host[:port]; ayarlı değilse boş.
+  /api/v1/overview:
+    get:
+      summary: Servis sayıları ve düğüm heartbeat
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: özet
+  /api/v1/services:
+    get:
+      summary: Servis listesi
+      security: [{ bearer: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: offset
+          schema: { type: integer }
+      responses:
+        "200":
+          description: sayfa
+    post:
+      summary: Taslak servis oluştur
+      security: [{ bearer: [] }]
+      responses:
+        "201":
+          description: oluşturuldu
+        "422":
+          description: doğrulama
+  /api/v1/services/{id}:
+    get:
+      summary: Servis detayı
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: servis
+    put:
+      summary: Yalnız taslağı güncelle
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: güncellendi
+    delete:
+      summary: Yalnız taslağı sil
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: silindi
+  /api/v1/services/{id}/validate:
+    post:
+      summary: Yayım öncesi doğrulama
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: doğrulama sonucu
+  /api/v1/services/{id}/diff:
+    get:
+      summary: Son pakete göre yayım farkı
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: fark listesi
+  /api/v1/services/{id}/publish:
+    post:
+      summary: Filo veya tek düğüm için revision üret
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedVersion: { type: integer }
+                node:
+                  type: string
+                  description: Boşsa filonun bütün düğümleri. Doluysa yalnız bu düğümün desired revision değeri.
+      responses:
+        "200":
+          description: revision
+        "404":
+          description: düğüm yok
+        "409":
+          description: sürüm çakışması
+        "422":
+          description: düğüm adı geçersiz
+  /api/v1/revisions:
+    get:
+      summary: Revision listesi
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: liste
+  /api/v1/revisions/{id}:
+    get:
+      summary: Revision özeti ve paket gövdesi
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: revision
+  /api/v1/revisions/{id}/rollback:
+    post:
+      summary: Eski paketi yeni revision olarak yeniden imzala
+      security: [{ bearer: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: yeni revision
+        "409":
+          description: paket zaten istenen sürüm
+  /api/v1/audit:
+    get:
+      summary: Denetim kayıtları
+      security: [{ bearer: [] }]
+      responses:
+        "200":
+          description: liste
+  /api/v1/agent/package:
+    get:
+      summary: Düğümün desired revision paketi
+      security: [{ bearer: [] }]
+      parameters:
+        - in: query
+          name: node
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: paket
+        "204":
+          description: paket yok
+  /api/v1/agent/heartbeat:
+    post:
+      summary: Düğüm heartbeat, ACK ve NACK
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [node]
+              properties:
+                node: { type: string }
+                deliveredRevision: { type: integer, nullable: true }
+                ackedRevision: { type: integer, nullable: true }
+                nackRevision: { type: integer, nullable: true }
+                nackDetail: { type: string }
+                clearNack: { type: boolean }
+                probes: { type: array, items: { type: object } }
+      responses:
+        "204":
+          description: alındı
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer

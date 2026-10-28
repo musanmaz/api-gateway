@@ -2,11 +2,15 @@ package compiler
 
 import (
 	"fmt"
+ accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
+ grpcaccesslog "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
 	"time"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	extauthz "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	localratelimit "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/local_ratelimit/v3"
 	tlsinspector "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/tls_inspector/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
@@ -35,8 +39,28 @@ func httpListener(item model.PkgListener) (*listener.Listener, error) {
 	}
 	manager := &hcm.HttpConnectionManager{
 		StatPrefix:                   "ingress",
+        AccessLog:[]*accesslog.AccessLog{{
+          Name:"envoy.access_loggers.http_grpc",
+          ConfigType:&accesslog.AccessLog_TypedConfig{
+            TypedConfig:mustAny(&grpcaccesslog.HttpGrpcAccessLogConfig{
+              CommonConfig:&grpcaccesslog.CommonGrpcAccessLogConfig{
+                LogName:"gateway-service-traffic",
+                GrpcService:&core.GrpcService{
+                  Timeout:durationpb.New(2*time.Second),
+                  TargetSpecifier:&core.GrpcService_EnvoyGrpc_{
+                    EnvoyGrpc:&core.GrpcService_EnvoyGrpc{ClusterName:"xds_cluster"},
+                  },
+                },
+                TransportApiVersion:core.ApiVersion_V3,
+                BufferFlushInterval:durationpb.New(time.Second),
+              },
+            }),
+          },
+        }},
 		CodecType:                    codec,
 		NormalizePath:                wrapperspb.Bool(true),
+        UseRemoteAddress:wrapperspb.Bool(true),
+        XffNumTrustedHops:2,
 		MergeSlashes:                 true,
 		PathWithEscapedSlashesAction: hcm.HttpConnectionManager_REJECT_REQUEST,
 		CommonHttpProtocolOptions:    &core.HttpProtocolOptions{IdleTimeout: durationpb.New(300 * time.Second)},
@@ -47,6 +71,27 @@ func httpListener(item model.PkgListener) (*listener.Listener, error) {
 		StreamIdleTimeout:            durationpb.New(300 * time.Second),
 		StripPortMode:                &hcm.HttpConnectionManager_StripAnyHostPort{StripAnyHostPort: true},
 		HttpFilters: []*hcm.HttpFilter{{
+            Name: "envoy.filters.http.ext_authz",
+            ConfigType: &hcm.HttpFilter_TypedConfig{
+                TypedConfig: mustAny(&extauthz.ExtAuthz{
+                    Services: &extauthz.ExtAuthz_GrpcService{
+                        GrpcService: &core.GrpcService{
+                            Timeout: durationpb.New(time.Second),
+                            TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+                                EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "xds_cluster"},
+                            },
+                        },
+                    },
+                    TransportApiVersion: core.ApiVersion_V3,
+                    FailureModeAllow: false,
+                }),
+            },
+        },{
+            Name:"envoy.filters.http.local_ratelimit",
+            ConfigType:&hcm.HttpFilter_TypedConfig{
+              TypedConfig:mustAny(&localratelimit.LocalRateLimit{StatPrefix:"gateway_local_ratelimit"}),
+            },
+        },{
 			Name: "envoy.filters.http.router",
 			ConfigType: &hcm.HttpFilter_TypedConfig{
 				TypedConfig: mustAny(&router.Router{}),

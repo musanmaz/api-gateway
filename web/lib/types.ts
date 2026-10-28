@@ -18,6 +18,7 @@ export type Bootstrap = {
 export type Probe = { host: string; path: string; status: number; body: string; checkedAt: string };
 
 export type NodeInfo = {
+  telemetry?: {checks:number;denied:number;httpRequests:number;http2xx:number;http4xx:number;http5xx:number;wafMatches:number;wafBlocked:number};
   id: string;
   name: string;
   location: string;
@@ -49,8 +50,19 @@ export type Upstream = {
   requestTimeoutMs: number;
   endpoints: Endpoint[];
 };
-export type Route = { path: string; matchType: string; methods: string[]; upstream: Upstream };
+export type Route = { id?: string; rateLimitRps?: number; path: string; matchType: string; methods: string[]; upstream: Upstream };
 export type Service = {
+  wafMode?: "off"|"detect"|"block";
+  ipAllowlist?: string[];
+  ipDenylist?: string[];
+  rateLimitRps?: number;
+  upstreamAuthMode?: "none" | "basic" | "bearer" | "header";
+  upstreamAuthUsername?: string;
+  upstreamAuthHeader?: string;
+  requiredClientHeader?: string;
+  upstreamAuthConfigured?: boolean;
+  authMode?: "public" | "api_key";
+  gatewayBaseUrl?: string;
   id: string;
   name: string;
   listenerId: string;
@@ -86,4 +98,41 @@ export type AuditEvent = {
   after: unknown;
   result: string;
   createdAt: string;
+};
+
+export type LabTarget = { host: string; expectedInstance: string; url: string };
+export type LabResult = LabTarget & { status: number; latencyMs: number; ok: boolean; body: string; error?: string; checkedAt: string };
+
+export type ServiceRouteSecurity = {
+  path: string;
+  matchType: string;
+  methods: string[];
+  rateLimitRps: number;
+};
+export type ServiceSecurityPolicy = {
+  wafMode: "off" | "detect" | "block";
+  authMode: "public" | "api_key";
+  upstreamAuthMode: "none" | "basic" | "bearer" | "header";
+  upstreamAuthConfigured: boolean;
+  requiredClientHeader: string;
+  rateLimitRps: number;
+  ipAllowlist: string[];
+  ipDenylist: string[];
+  routes: ServiceRouteSecurity[];
+};
+export type ServiceNodeSecurity = {
+  name: string;
+  location: string;
+  heartbeat: "fresh" | "stale" | "unknown";
+  desiredRevision: number | null;
+  ackedRevision: number | null;
+  state: "acknowledged" | "outdated" | "offline" | "not_deployed";
+  applied: ServiceSecurityPolicy | null;
+};
+export type ServiceSecurityStatus = {
+  serviceId: string;
+  status: string;
+  pending: boolean;
+  saved: ServiceSecurityPolicy;
+  nodes: ServiceNodeSecurity[];
 };

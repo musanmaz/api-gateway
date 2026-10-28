@@ -64,3 +64,30 @@ make down
 ```
 
 Kimlikler `.local/` altındadır ve git'e girmez. Silinirse `make bootstrap` yenilerini üretir; eski imzalı paketler doğrulanamaz.
+
+## Public test kurulumu — ai.mehmet.tech
+
+Panel: https://api-gateway.mehmet.tech
+
+| Test adresi | Yönetilen hedef | Doğrulama |
+| --- | --- | --- |
+| https://api1.mehmet.tech/api/info | backend-a:8080 (Catalog API) | JSON içinde `instance: backend-a` |
+| https://api2.mehmet.tech/api/info | backend-b:8080 (Orders API) | JSON içinde `instance: backend-b` |
+
+Akış: mevcut Caddy / public TLS → Envoy edge → iki Envoy düğümü → ilgili örnek backend.
+Panelde **Test laboratuvarı** iki public adresi kontrol API'sinden sorgular; gerçek durum kodunu, yanıt süresini ve yanıt gövdesini gösterir. Ölçüm kullanıcının tarayıcısından yapılmaz.
+
+Sunucuda, proje kökünde:
+
+```sh
+sh scripts/bootstrap-test.sh
+docker compose --env-file .local/test.env -f deploy/compose/compose.yaml -f deploy/compose/test.yaml up --build -d
+python3 scripts/seed-test.py
+make token
+```
+
+`make token` ile alınan anahtar panelin giriş ekranında kullanılır. Anahtarlar Git'e girmez. Test kurulumunda veritabanı parolası rastgele üretilir. `bootstrap-test.sh` Linux hostta root olarak çalışır ve secret dosyalarını yalnız container grubunun okuyabileceği izinlerle hazırlar.
+
+Caddy'nin bağlı olduğu `ai-network` mevcut olmalıdır. `deploy/compose/Caddyfile.test` yalnızca bu projeye ait üç hostname bloğudur; mevcut Caddyfile'ın tamamının yerine konmaz. Eklemeden önce yedek alınır, `caddy validate` başarılı olduktan sonra reload yapılır. Web production build olarak çalışır; yönetim API, PostgreSQL, xDS ve Envoy admin dışarıya açılmaz. Agent API yolları public panel proxy'sinde kapalıdır.
+
+Bu bir **tek sunuculu test ortamıdır**. Container restart/failover testleri yapılabilir; sunucu veya lokasyon kaybına karşı HA değildir. OIDC, WAF, merkezi trafik metrikleri ve public sertifika envanteri bu değişikliğin kapsamı değildir.

@@ -59,6 +59,10 @@ func Normalize(in model.ServiceInput) (model.ServiceInput, []string) {
 	for i, host := range in.Hostnames {
 		host = strings.ToLower(strings.TrimSpace(host))
 		in.Hostnames[i] = host
+		if host == "api-gateway.mehmet.tech" {
+			errs = append(errs, "api-gateway.mehmet.tech merkezi gateway icin ayrilmistir")
+			continue
+		}
 		if strings.Contains(host, "*") || host == "" {
 			errs = append(errs, "joker veya boş hostname kapalı")
 			continue
@@ -79,6 +83,7 @@ func Normalize(in model.ServiceInput) (model.ServiceInput, []string) {
 	seenRoute := map[string]struct{}{}
 	for i := range in.Routes {
 		route := &in.Routes[i]
+		if route.RateLimitRPS<0 || route.RateLimitRPS>10000 {errs=append(errs,"endpoint rate limit 0-10000 istek/saniye olmalı")}
 		route.Path = strings.TrimSpace(route.Path)
 		route.MatchType = strings.ToLower(strings.TrimSpace(route.MatchType))
 		if route.MatchType == "" {

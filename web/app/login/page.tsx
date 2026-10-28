@@ -3,14 +3,18 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { Icon } from "@/components/icon";
+import { ErrorText, PrimaryButton } from "@/components/ui";
+import { useLanguage } from "@/lib/i18n";
 
 export default function LoginPage() {
   const router = useRouter();
+  const {t}=useLanguage();
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  async function submit(event: FormEvent) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError("");
@@ -20,42 +24,43 @@ export default function LoginPage() {
       router.push("/");
     } catch {
       sessionStorage.removeItem("gateway.token");
-      setError("Bu anahtar kabul edilmedi. Anahtarı eksiksiz kopyaladığınızdan emin olun.");
+      setError("Giriş doğrulanamadı. Erişim anahtarını kontrol edin.");
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <form onSubmit={submit} className="mx-auto mt-24 max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h1 className="text-2xl font-semibold">Gateway paneline giriş</h1>
-      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-600">
-        <li>
-          Proje klasöründe terminale <code className="rounded bg-slate-100 px-1">make token</code> yazın.
-        </li>
-        <li>Çıkan uzun satırı kopyalayın.</li>
-        <li>Aşağıdaki kutuya yapıştırın.</li>
-      </ol>
-      <label className="mt-6 block text-sm font-medium" htmlFor="token">
-        Giriş anahtarı
-      </label>
-      <input
-        id="token"
-        type="password"
-        autoComplete="off"
-        required
-        value={token}
-        onChange={(event) => setToken(event.target.value)}
-        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
-      />
-      {error ? (
-        <p role="alert" className="mt-3 text-sm text-red-800">
-          {error}
-        </p>
-      ) : null}
-      <button type="submit" disabled={pending} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white disabled:opacity-60">
-        {pending ? "Kontrol ediliyor…" : "Giriş"}
-      </button>
-    </form>
+    <main className="login-layout">
+      <div className="login-form-wrap">
+        <form onSubmit={submit} className="login-form">
+          <span className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-teal-100 bg-teal-50 text-teal-700">
+            <Icon name="lock" size={23} />
+          </span>
+          <p className="eyebrow text-teal-700">{t("Gateway Yönetim Paneli")}</p>
+          <h1 className="mt-3 text-[30px] font-semibold tracking-tight text-slate-800">{t("Giriş yap")}</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            {t("Servislerinizi yönetmek için erişim anahtarınızı girin.")}
+          </p>
+          <label htmlFor="token" className="mb-2 mt-8 block text-xs font-semibold text-slate-600">
+            {t("Erişim anahtarı")}
+          </label>
+          <input
+            id="token"
+            type="password"
+            autoComplete="off"
+            required
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder={t("Erişim anahtarınız")}
+            className="login-input"
+          />
+          {error && <div className="mt-4"><ErrorText>{error}</ErrorText></div>}
+          <PrimaryButton type="submit" disabled={pending || !token.trim()} className="mt-5 w-full !py-3">
+            {pending ? t("Doğrulanıyor…") : t("Giriş yap")} <Icon name="arrow" size={16} />
+          </PrimaryButton>
+        </form>
+      </div>
+    </main>
   );
 }

@@ -46,7 +46,7 @@ func main() {
 	}
 	server := &http.Server{
 		Addr:              getenv("LISTEN_ADDR", ":8080"),
-		Handler:           httpapi.New(st, signer, tokens).WithTryURL(getenv("GATEWAY_TRY_URL", "")).Handler(),
+		Handler:           httpapi.New(st, signer, tokens).WithTryURL(getenv("GATEWAY_TRY_URL", "")).WithLabTargets(getenv("GATEWAY_LAB_TARGETS", "")).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

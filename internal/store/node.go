@@ -14,6 +14,9 @@ import (
 var nodeNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 type HeartbeatInput struct {
+    TrafficBootID string
+    Traffic []model.ServiceTrafficBucket
+    Telemetry model.NodeTelemetry
 	Node              string
 	DeliveredRevision *int64
 	AckedRevision     *int64

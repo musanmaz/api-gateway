@@ -1,0 +1,9 @@
+.git
+.local
+.env
+.env.*
+web/node_modules
+web/.next
+web/*.tsbuildinfo
+ruvector.db
+*.log

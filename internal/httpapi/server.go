@@ -55,11 +55,12 @@ func readSecret(path string) (string, error) {
 }
 
 type Server struct {
-	store  *store.Store
-	signer sign.Signer
-	tokens Tokens
-	limit  *limiter
-	tryURL string
+	store      *store.Store
+	signer     sign.Signer
+	tokens     Tokens
+	limit      *limiter
+	tryURL     string
+	labTargets []LabTarget
 }
 
 func New(st *store.Store, signer sign.Signer, tokens Tokens) *Server {
@@ -78,12 +79,23 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /readyz", s.ready)
 	mux.HandleFunc("GET /api/v1/bootstrap", s.bootstrap)
+	mux.HandleFunc("GET /api/v1/lab", s.labConfig)
+	mux.HandleFunc("GET /api/v1/lab/probe", s.labProbe)
 	mux.HandleFunc("GET /api/v1/overview", s.overview)
 	mux.HandleFunc("GET /api/v1/services", s.listServices)
 	mux.HandleFunc("POST /api/v1/services", s.createService)
 	mux.HandleFunc("GET /api/v1/services/{id}", s.getService)
+	mux.HandleFunc("GET /api/v1/services/{id}/security-status",s.serviceSecurityStatus)
+	mux.HandleFunc("GET /api/v1/services/{id}/traffic",s.serviceTraffic)
 	mux.HandleFunc("PUT /api/v1/services/{id}", s.updateService)
 	mux.HandleFunc("DELETE /api/v1/services/{id}", s.deleteService)
+	mux.HandleFunc("POST /api/v1/services/{id}/auth-key", s.rotateServiceKey)
+	mux.HandleFunc("POST /api/v1/services/{id}/auth-public", s.disableServiceKey)
+	mux.HandleFunc("POST /api/v1/services/{id}/upstream-auth", s.configureUpstreamAuth)
+	mux.HandleFunc("POST /api/v1/services/{id}/waf",s.setServiceWAF)
+	mux.HandleFunc("POST /api/v1/services/{id}/ip-policy",s.setServiceIPPolicy)
+	mux.HandleFunc("POST /api/v1/services/{id}/rate-limit", s.setServiceRateLimit)
+	mux.HandleFunc("POST /api/v1/services/{id}/routes/{routeId}/rate-limit",s.setRouteRateLimit)
 	mux.HandleFunc("POST /api/v1/services/{id}/validate", s.validateService)
 	mux.HandleFunc("GET /api/v1/services/{id}/diff", s.diffService)
 	mux.HandleFunc("POST /api/v1/services/{id}/publish", s.publishService)
@@ -91,7 +103,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/revisions/{id}", s.getRevision)
 	mux.HandleFunc("POST /api/v1/revisions/{id}/rollback", s.rollbackRevision)
 	mux.HandleFunc("GET /api/v1/audit", s.listAudit)
-	mux.HandleFunc("GET /api/v1/agent/package", s.agentPackage)
+	mux.HandleFunc("POST /api/v1/nodes/{name}/agent-credential", s.nodeAgentCredential)
+    mux.HandleFunc("GET /api/v1/agent/package", s.agentPackage)
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentHeartbeat)
 	return s.wrap(mux)
 }
@@ -145,6 +158,10 @@ func (s *Server) authenticate(r *http.Request) (principal, bool) {
 	case matchToken(token, s.tokens.Agent):
 		return principal{Name: "agent", Role: model.RoleAgent}, true
 	default:
+        if !strings.HasPrefix(r.URL.Path,"/api/v1/agent/"){return principal{},false}
+        if owner,ok:=s.store.AgentCredentialOwner(r.Context(),token);ok{
+         return principal{Name:owner,Role:model.RoleAgent},true
+        }
 		return principal{}, false
 	}
 }
@@ -335,6 +352,10 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) agentPackage(w http.ResponseWriter, r *http.Request) {
+    actor:=current(r)
+    if actor.Role==model.RoleAgent && actor.Name!="agent" && r.URL.Query().Get("node")!=actor.Name{
+      writeJSON(w,http.StatusForbidden,map[string]string{"error":"node identity mismatch"});return
+    }
 	env, err := s.store.DesiredEnvelope(r.Context(), r.URL.Query().Get("node"))
 	if errors.Is(err, store.ErrNotFound) {
 		w.WriteHeader(http.StatusNoContent)
@@ -356,14 +377,21 @@ func (s *Server) agentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		NackDetail        string        `json:"nackDetail"`
 		ClearNack         bool          `json:"clearNack"`
 		Probes            []model.Probe `json:"probes"`
+        Telemetry model.NodeTelemetry `json:"telemetry"`
+        TrafficBootID string `json:"trafficBootId"`
+        Traffic []model.ServiceTrafficBucket `json:"traffic"`
 	}
 	if err := decode(w, r, &body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "istek gövdesi okunamadı"})
 		return
 	}
+    actor:=current(r)
+    if actor.Role==model.RoleAgent && actor.Name!="agent" && body.Node!=actor.Name{
+      writeJSON(w,http.StatusForbidden,map[string]string{"error":"node identity mismatch"});return
+    }
 	if err := s.store.Heartbeat(r.Context(), store.HeartbeatInput{
 		Node: body.Node, DeliveredRevision: body.DeliveredRevision, AckedRevision: body.AckedRevision,
-		NackRevision: body.NackRevision, NackDetail: body.NackDetail, ClearNack: body.ClearNack, Probes: body.Probes,
+		NackRevision: body.NackRevision, NackDetail: body.NackDetail, ClearNack: body.ClearNack, Probes: body.Probes, Telemetry:body.Telemetry,TrafficBootID:body.TrafficBootID,Traffic:body.Traffic,
 	}); err != nil {
 		writeError(w, err)
 		return

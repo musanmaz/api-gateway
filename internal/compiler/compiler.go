@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"strings"
 	"strconv"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+	extauthz "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	localratelimit "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/local_ratelimit/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -143,15 +147,64 @@ func virtualHosts(hosts []model.PkgVHost, listenerName string) []*route.VirtualH
 				action := &route.RouteAction{
 					ClusterSpecifier: &route.RouteAction_Cluster{Cluster: item.Cluster},
 					Timeout:          durationpb.New(time.Duration(item.TimeoutMs) * time.Millisecond),
+					PrefixRewrite: item.RewritePrefix,
 				}
 				if host.Protocol == "http" || host.Protocol == "https" || host.Protocol == "websocket" {
 					action.UpgradeConfigs = []*route.RouteAction_UpgradeConfig{{UpgradeType: "websocket"}}
 				}
-				routes = append(routes, &route.Route{
-					Name:   name,
-					Match:  match,
-					Action: &route.Route_Route{Route: action},
-				})
+                configured := &route.Route{
+                    Name: name, Match: match, Action: &route.Route_Route{Route: action},
+                }
+                if item.AuthKeyHash != "" || item.UpstreamAuthMode != "none" && item.UpstreamAuthMode != "" || item.RequiredClientHeader != "" || len(item.IPAllowlist)>0 || len(item.IPDenylist)>0 || item.WafMode!="" && item.WafMode!="off" || item.ServiceID!="" {
+                    metadata:=map[string]string{}
+                    if item.ServiceID!="" {metadata["gateway-service-id"]=item.ServiceID}
+                    if len(item.IPAllowlist)>0 {metadata["gateway-ip-allowlist"]=strings.Join(item.IPAllowlist,",")}
+                    if len(item.IPDenylist)>0 {metadata["gateway-ip-denylist"]=strings.Join(item.IPDenylist,",")}
+                    if item.WafMode=="detect" || item.WafMode=="block"{metadata["gateway-waf-mode"]=item.WafMode}
+                    if item.AuthKeyHash!="" {metadata["gateway-key-sha256"]=item.AuthKeyHash}
+                    if item.RequiredClientHeader!="" {metadata["gateway-required-header"]=item.RequiredClientHeader}
+                    if item.UpstreamAuthMode!="" && item.UpstreamAuthMode!="none" {
+                        metadata["gateway-upstream-mode"]=item.UpstreamAuthMode
+                        metadata["gateway-upstream-username"]=item.UpstreamAuthUsername
+                        metadata["gateway-upstream-header"]=item.UpstreamAuthHeader
+                        metadata["gateway-upstream-cipher"]=item.UpstreamAuthCipher
+                    }
+                    configured.TypedPerFilterConfig = map[string]*anypb.Any{
+                        "envoy.filters.http.ext_authz": mustAny(&extauthz.ExtAuthzPerRoute{
+                            Override: &extauthz.ExtAuthzPerRoute_CheckSettings{
+                                CheckSettings: &extauthz.CheckSettings{
+                                    ContextExtensions: metadata,
+                                    WithRequestBody:func()*extauthz.BufferSettings{
+                                        if item.WafMode=="detect" || item.WafMode=="block" {
+                                            return &extauthz.BufferSettings{MaxRequestBytes:1024*1024,AllowPartialMessage:false,PackAsBytes:true}
+                                        }
+                                        return nil
+                                    }(),
+                                },
+                            },
+                        }),
+                    }
+                }
+                if item.RateLimitRPS > 0 {
+                    if configured.TypedPerFilterConfig == nil {
+                        configured.TypedPerFilterConfig=map[string]*anypb.Any{}
+                    }
+                    fully:=&core.RuntimeFractionalPercent{
+                        DefaultValue:&typev3.FractionalPercent{Numerator:100,Denominator:typev3.FractionalPercent_HUNDRED},
+                    }
+                    configured.TypedPerFilterConfig["envoy.filters.http.local_ratelimit"]=
+                        mustAny(&localratelimit.LocalRateLimit{
+                            StatPrefix:"gateway_route_limiter",
+                            TokenBucket:&typev3.TokenBucket{
+                                MaxTokens:uint32(item.RateLimitRPS),
+                                TokensPerFill:wrapperspb.UInt32(uint32(item.RateLimitRPS)),
+                                FillInterval:durationpb.New(time.Second),
+                            },
+                            FilterEnabled:fully,
+                            FilterEnforced:fully,
+                        })
+                }
+                routes = append(routes, configured)
 			}
 		}
 		out = append(out, &route.VirtualHost{

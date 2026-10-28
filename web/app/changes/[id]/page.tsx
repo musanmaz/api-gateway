@@ -50,7 +50,7 @@ export default function ChangeDetailPage() {
       {error ? <ErrorText>{error}</ErrorText> : null}
       {!item && !error ? <p>Yükleniyor…</p> : null}
       {item ? (
-        <div className="space-y-4">
+        <div className="mt-6 space-y-4">
           <Panel className="space-y-3">
             <p>{item.summary}</p>
             {message ? (
@@ -66,11 +66,11 @@ export default function ChangeDetailPage() {
               </PrimaryButton>
             )}
           </Panel>
-          <details className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
+          <details className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
             <summary className="cursor-pointer">Teknik ayrıntılar</summary>
-            <p className="mt-3 text-stone-600">Önceki sürüm: {item.parentRevisionId ?? "yok"}</p>
-            <p className="mt-1 break-all text-xs text-stone-500">İçerik özeti: {item.contentHash}</p>
-            <pre className="mt-3 overflow-auto rounded-lg bg-stone-950 p-3 text-xs text-stone-100">{pretty}</pre>
+            <p className="mt-3 text-slate-600">Önceki sürüm: {item.parentRevisionId ?? "yok"}</p>
+            <p className="mt-1 break-all text-xs text-slate-500">İçerik özeti: {item.contentHash}</p>
+            <pre className="mt-3 overflow-auto rounded-lg bg-slate-950 p-3 text-xs text-slate-100">{pretty}</pre>
           </details>
         </div>
       ) : null}

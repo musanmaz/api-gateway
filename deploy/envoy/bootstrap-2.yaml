@@ -3,9 +3,9 @@ node:
   cluster: local-dev
 admin:
   address:
-    socket_address:
-      address: 127.0.0.1
-      port_value: 9901
+    pipe:
+      path: /var/run/gateway/admin.sock
+      mode: 511
 dynamic_resources:
   ads_config:
     api_type: GRPC

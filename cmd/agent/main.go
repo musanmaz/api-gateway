@@ -14,6 +14,7 @@ import (
 	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
+	auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	ldsv3 "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
@@ -28,6 +29,9 @@ import (
 	"gateway-control/internal/compiler"
 	"gateway-control/internal/model"
 	"gateway-control/internal/sign"
+	"gateway-control/internal/secretbox"
+ accesslogs "github.com/envoyproxy/go-control-plane/envoy/service/accesslog/v3"
+ "github.com/corazawaf/coraza/v3"
 )
 
 func main() {
@@ -82,7 +86,12 @@ func main() {
 		state.rememberGood(pkg, snapshot)
 		logger.Info("yerel paket yüklendi", "revision", pkg.Revision)
 	}
-	go serveXDS(logger, getenv("XDS_SOCKET", "/var/run/gateway/xds.sock"), server)
+    traffic:=newTrafficCollector(state)
+    waf, err:=createCorazaWAF()
+    if err!=nil{logger.Error("Coraza WAF could not initialize","err",err);os.Exit(1)}
+	credentialKey, err := secretbox.ReadKey(getenv("GATEWAY_CREDENTIAL_KEY_FILE", ""))
+	if err != nil {logger.Error("credential encryption key unavailable", "err", err); os.Exit(1)}
+	go serveXDS(logger, getenv("XDS_SOCKET", "/var/run/gateway/xds.sock"), server, state, credentialKey,waf,traffic)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	probeClient := &http.Client{
@@ -104,7 +113,7 @@ func main() {
 		} else {
 			failures = 0
 		}
-		heartbeat(client, control, bearer, dataPlane, probeClient, state, logger)
+		heartbeat(client, control, bearer, dataPlane, probeClient, state, traffic, logger)
 	}
 	run()
 	tick := time.NewTicker(2 * time.Second)
@@ -192,7 +201,7 @@ func localCertificate(pkg model.Package, logger *slog.Logger) ([]byte, []byte) {
 	return nil, nil
 }
 
-func heartbeat(client *http.Client, control, token, dataPlane string, probeClient *http.Client, state *nodeState, logger *slog.Logger) {
+func heartbeat(client *http.Client, control, token, dataPlane string, probeClient *http.Client, state *nodeState, traffic *trafficCollector, logger *slog.Logger) {
 	report := state.beat()
 	body := map[string]any{
 		"node":              state.node,
@@ -202,6 +211,9 @@ func heartbeat(client *http.Client, control, token, dataPlane string, probeClien
 		"nackDetail":        report.Detail,
 		"clearNack":         report.Clear,
 		"probes":            probeRoutes(probeClient, dataPlane, report.Pkg),
+        "trafficBootId":traffic.bootID,
+        "traffic":traffic.snapshot(),
+        "telemetry":func() model.NodeTelemetry {v:=readEnvoyStats(getenv("ENVOY_ADMIN_SOCKET","/var/run/gateway/admin.sock"));v.Checks=state.authChecks.Load();v.Denied=state.authDenied.Load();v.WafMatches=state.wafMatches.Load();v.WafBlocked=state.wafBlocked.Load();return v}(),
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -268,7 +280,7 @@ func probeRoutes(client *http.Client, base string, pkg *model.Package) []model.P
 	return out
 }
 
-func serveXDS(logger *slog.Logger, socketPath string, server xds.Server) {
+func serveXDS(logger *slog.Logger, socketPath string, server xds.Server, state *nodeState, key []byte,waf coraza.WAF,traffic *trafficCollector) {
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		logger.Error("eski xds soketi silinemedi", "err", err)
 		os.Exit(1)
@@ -283,6 +295,8 @@ func serveXDS(logger *slog.Logger, socketPath string, server xds.Server) {
 		os.Exit(1)
 	}
 	grpcServer := grpc.NewServer()
+    accesslogs.RegisterAccessLogServiceServer(grpcServer,traffic)
+	auth.RegisterAuthorizationServer(grpcServer, &localAuthorizer{state: state, encryptionKey: key,waf:waf,traffic:traffic})
 	discovery.RegisterAggregatedDiscoveryServiceServer(grpcServer, server)
 	endpoint.RegisterEndpointDiscoveryServiceServer(grpcServer, server)
 	cluster.RegisterClusterDiscoveryServiceServer(grpcServer, server)

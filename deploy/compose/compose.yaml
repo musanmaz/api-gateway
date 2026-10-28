@@ -46,6 +46,7 @@ services:
       GATEWAY_VIEWER_TOKEN_FILE: /etc/gateway/viewer.token
       GATEWAY_AGENT_TOKEN_FILE: /etc/gateway/agent.token
       GATEWAY_SIGNING_KEY_FILE: /etc/gateway/ed25519.key
+      GATEWAY_CREDENTIAL_KEY_FILE: /etc/gateway/credential.key
       GATEWAY_TRY_URL: http://127.0.0.1:10000
       LISTEN_ADDR: ":8080"
     volumes:
@@ -53,6 +54,7 @@ services:
       - ../../.local/viewer.token:/etc/gateway/viewer.token:ro
       - ../../.local/agent.token:/etc/gateway/agent.token:ro
       - ../../.local/keys/ed25519.key:/etc/gateway/ed25519.key:ro
+      - ../../.local/keys/credential.key:/etc/gateway/credential.key:ro
     ports:
       - "127.0.0.1:9080:8080"
     depends_on:
@@ -71,6 +73,7 @@ services:
       NODE_NAME: gw-local-1
       AGENT_TOKEN_FILE: /etc/gateway/agent.token
       PUBKEY_FILE: /etc/gateway/ed25519.pub
+      GATEWAY_CREDENTIAL_KEY_FILE: /etc/gateway/credential.key
       STATE_DIR: /var/lib/gateway-agent
       XDS_SOCKET: /var/run/gateway/xds.sock
       DATA_PLANE_URL: http://envoy:10000
@@ -79,7 +82,9 @@ services:
     volumes:
       - ../../.local/agent.token:/etc/gateway/agent.token:ro
       - ../../.local/keys/ed25519.pub:/etc/gateway/ed25519.pub:ro
-      - ../../.local/certs:/etc/gateway/certs:ro
+      - ../../.local/keys/credential.key:/etc/gateway/credential.key:ro
+      - ../../.local/certs/server.crt:/etc/gateway/certs/server.crt:ro
+      - ../../.local/certs/server.key:/etc/gateway/certs/server.key:ro
       - agentstate:/var/lib/gateway-agent
       - xds:/var/run/gateway
     depends_on:
@@ -118,6 +123,7 @@ services:
       NODE_NAME: gw-local-2
       AGENT_TOKEN_FILE: /etc/gateway/agent.token
       PUBKEY_FILE: /etc/gateway/ed25519.pub
+      GATEWAY_CREDENTIAL_KEY_FILE: /etc/gateway/credential.key
       STATE_DIR: /var/lib/gateway-agent
       XDS_SOCKET: /var/run/gateway/xds.sock
       DATA_PLANE_URL: http://envoy-2:10000
@@ -126,7 +132,9 @@ services:
     volumes:
       - ../../.local/agent.token:/etc/gateway/agent.token:ro
       - ../../.local/keys/ed25519.pub:/etc/gateway/ed25519.pub:ro
-      - ../../.local/certs:/etc/gateway/certs:ro
+      - ../../.local/keys/credential.key:/etc/gateway/credential.key:ro
+      - ../../.local/certs/server.crt:/etc/gateway/certs/server.crt:ro
+      - ../../.local/certs/server.key:/etc/gateway/certs/server.key:ro
       - agentstate2:/var/lib/gateway-agent
       - xds2:/var/run/gateway
     depends_on:

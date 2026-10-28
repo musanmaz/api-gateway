@@ -3,6 +3,7 @@ package main
 import (
 	"strconv"
 	"sync"
+ "sync/atomic"
 
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -19,6 +20,10 @@ type pendingPush struct {
 }
 
 type nodeState struct {
+    wafMatches atomic.Uint64
+    wafBlocked atomic.Uint64
+    authChecks atomic.Uint64
+    authDenied atomic.Uint64
 	mu           sync.Mutex
 	node         string
 	pkg          *model.Package

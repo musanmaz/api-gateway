@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"golang.org/x/net/websocket"
 	"google.golang.org/grpc"
@@ -18,6 +20,15 @@ func main() {
 	name := getenv("INSTANCE", "backend")
 	port := getenv("PORT", "8080")
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/info", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"instance": name, "service": getenv("SERVICE_NAME", name),
+			"environment": "test", "hostname": r.Host, "path": r.URL.Path,
+			"method": r.Method, "timestamp": time.Now().UTC().Format(time.RFC3339),
+		})
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

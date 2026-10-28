@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -126,7 +127,7 @@ func (s *Store) Bootstrap(ctx context.Context) (Bootstrap, error) {
 
 func (s *Store) Overview(ctx context.Context) (Overview, error) {
 	var out Overview
-	out.Telemetry = "disconnected"
+	out.Telemetry = "authz_checks"
 	out.ExternalProbe = "not_configured"
 	err := s.pool.QueryRow(ctx, `
 		SELECT count(*),
@@ -143,7 +144,7 @@ func (s *Store) Overview(ctx context.Context) (Overview, error) {
 	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT id::text, fleet_id::text, name, location, desired_revision, delivered_revision,
-		       acked_revision, nack_revision, nack_detail, last_heartbeat_at, probe
+		       acked_revision, nack_revision, nack_detail, last_heartbeat_at, probe, telemetry_checks, telemetry_denied, telemetry_http_requests, telemetry_http_2xx, telemetry_http_4xx, telemetry_http_5xx, telemetry_waf_matches, telemetry_waf_blocked
 		FROM nodes ORDER BY name`)
 	if err != nil {
 		return Overview{}, err
@@ -694,15 +695,16 @@ func (s *Store) Heartbeat(ctx context.Context, beat HeartbeatInput) error {
 		    acked_revision = COALESCE($3, acked_revision),
 		    nack_revision = CASE WHEN $4 THEN $5::bigint ELSE nack_revision END,
 		    nack_detail = CASE WHEN $4 THEN $6::text ELSE nack_detail END,
-		    probe = $7,
+		    probe = $7, telemetry_checks=$8, telemetry_denied=$9,telemetry_http_requests=$10,telemetry_http_2xx=$11,telemetry_http_4xx=$12,telemetry_http_5xx=$13,telemetry_waf_matches=$14,telemetry_waf_blocked=$15,
 		    last_heartbeat_at = now()
-		WHERE name = $1`, beat.Node, beat.DeliveredRevision, beat.AckedRevision, beat.ClearNack || beat.NackRevision != nil, nack, storedDetail, raw)
+		WHERE name = $1`, beat.Node, beat.DeliveredRevision, beat.AckedRevision, beat.ClearNack || beat.NackRevision != nil, nack, storedDetail, raw,beat.Telemetry.Checks,beat.Telemetry.Denied,beat.Telemetry.HTTPRequests,beat.Telemetry.HTTP2xx,beat.Telemetry.HTTP4xx,beat.Telemetry.HTTP5xx,beat.Telemetry.WafMatches,beat.Telemetry.WafBlocked)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() != 1 {
 		return ErrNotFound
 	}
+	if err:=s.saveTraffic(ctx,beat);err!=nil{return err}
 	return nil
 }
 
@@ -719,10 +721,11 @@ func (s *Store) getServiceTx(ctx context.Context, q querier, id string) (model.S
 	var svc model.Service
 	err := q.QueryRow(ctx, `
 		SELECT id::text, name, description, owner, importance, environment_id::text, team_id::text,
-		       fleet_id::text, listener_id::text, status, version, published_version, created_at, updated_at
+		       fleet_id::text, listener_id::text, status, version, published_version, created_at, updated_at, auth_mode, auth_key_hash,
+       upstream_auth_mode, upstream_auth_username, upstream_auth_header, upstream_auth_cipher, required_client_header, rate_limit_rps, ip_allowlist, ip_denylist, waf_mode
 		FROM services WHERE id=$1`, id).Scan(
 		&svc.ID, &svc.Name, &svc.Description, &svc.Owner, &svc.Importance, &svc.EnvironmentID, &svc.TeamID,
-		&svc.FleetID, &svc.ListenerID, &svc.Status, &svc.Version, &svc.PublishedVersion, &svc.CreatedAt, &svc.UpdatedAt)
+		&svc.FleetID, &svc.ListenerID, &svc.Status, &svc.Version, &svc.PublishedVersion, &svc.CreatedAt, &svc.UpdatedAt, &svc.AuthMode, &svc.AuthKeyHash, &svc.UpstreamAuthMode, &svc.UpstreamAuthUsername, &svc.UpstreamAuthHeader, &svc.UpstreamAuthCipher, &svc.RequiredClientHeader, &svc.RateLimitRPS, &svc.IPAllowlist, &svc.IPDenylist, &svc.WafMode)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Service{}, ErrNotFound
 	}
@@ -748,7 +751,7 @@ func (s *Store) getServiceTx(ctx context.Context, q querier, id string) (model.S
 	rows.Close()
 	svc.Routes = []model.Route{}
 	routeRows, err := q.Query(ctx, `
-		SELECT r.id::text, r.path, r.match_type, r.methods, p.id::text, p.name, p.algorithm,
+		SELECT r.id::text, r.path, r.match_type, r.methods, r.rate_limit_rps, p.id::text, p.name, p.algorithm,
 		       p.connect_timeout_ms, p.request_timeout_ms
 		FROM routes r JOIN upstream_pools p ON p.id = r.upstream_pool_id
 		WHERE r.service_id=$1
@@ -760,7 +763,7 @@ func (s *Store) getServiceTx(ctx context.Context, q querier, id string) (model.S
 	for routeRows.Next() {
 		var route model.Route
 		var methods []string
-		if err := routeRows.Scan(&route.ID, &route.Path, &route.MatchType, &methods, &route.Upstream.ID, &route.Upstream.Name, &route.Upstream.Algorithm, &route.Upstream.ConnectTimeoutMs, &route.Upstream.RequestTimeoutMs); err != nil {
+		if err := routeRows.Scan(&route.ID, &route.Path, &route.MatchType, &methods, &route.RateLimitRPS, &route.Upstream.ID, &route.Upstream.Name, &route.Upstream.Algorithm, &route.Upstream.ConnectTimeoutMs, &route.Upstream.RequestTimeoutMs); err != nil {
 			return model.Service{}, err
 		}
 		if methods == nil {
@@ -790,6 +793,19 @@ func (s *Store) getServiceTx(ctx context.Context, q querier, id string) (model.S
 		epRows.Close()
 		if err != nil {
 			return model.Service{}, err
+		}
+	}
+	svc.UpstreamAuthConfigured = svc.UpstreamAuthMode != "none" && svc.UpstreamAuthCipher != ""
+	// The management UI advertises a central link only for HTTP listeners.
+	// Private L4, HTTPS and gRPC ports are not falsely presented as public HTTP.
+	base := strings.TrimRight(os.Getenv("GATEWAY_PUBLIC_BASE_URL"), "/")
+	if strings.HasPrefix(base, "https://") && len(svc.Routes) > 0 {
+		var protocol string
+		if err := q.QueryRow(ctx, "SELECT protocol FROM listeners WHERE id=$1", svc.ListenerID).Scan(&protocol); err != nil {
+			return model.Service{}, err
+		}
+		if protocol == "http" {
+			svc.GatewayBaseURL = base + "/api/" + svc.Name
 		}
 	}
 	return svc, nil
@@ -923,9 +939,9 @@ func insertGraph(ctx context.Context, tx pgx.Tx, serviceID, fleetID string, in m
 			methods = []string{}
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO routes (id, service_id, match_type, path, methods, upstream_pool_id, priority)
-			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			newID(), serviceID, route.MatchType, route.Path, methods, poolID, routePriority(route.MatchType, route.Path)); err != nil {
+			INSERT INTO routes (id, service_id, match_type, path, methods, upstream_pool_id, priority, rate_limit_rps)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			newID(), serviceID, route.MatchType, route.Path, methods, poolID, routePriority(route.MatchType, route.Path), route.RateLimitRPS); err != nil {
 			return err
 		}
 	}
@@ -986,6 +1002,11 @@ func buildPackage(revision int64, fleetID string, services []model.Service, list
 		if listener.Protocol == "https" {
 			item.TlsSecret = "local-dev"
 		}
+		public := model.PkgVHost{
+			Name: "gateway-central-" + listener.Name,
+			Listener: listener.Name, Protocol: listener.Protocol,
+			Domains: []string{"api-gateway.mehmet.tech"}, Routes: []model.PkgRoute{},
+		}
 		for _, svc := range group {
 			domains := append([]string(nil), svc.Hostnames...)
 			sort.Strings(domains)
@@ -1011,11 +1032,30 @@ func buildPackage(revision int64, fleetID string, services []model.Service, list
 					timeout = 0
 				}
 				pkgRoute := model.PkgRoute{
-					Name: route.ID, MatchType: route.MatchType, Path: route.Path, Methods: methods,
+					ServiceID:svc.ID,Name: route.ID, MatchType: route.MatchType, Path: route.Path, Methods: methods, AuthKeyHash: svc.AuthKeyHash, RateLimitRPS: func() int {if route.RateLimitRPS>0{return route.RateLimitRPS};return svc.RateLimitRPS}(), IPAllowlist:svc.IPAllowlist,IPDenylist:svc.IPDenylist,WafMode:svc.WafMode,
+                    UpstreamAuthMode: svc.UpstreamAuthMode, UpstreamAuthUsername: svc.UpstreamAuthUsername,
+                    UpstreamAuthHeader: svc.UpstreamAuthHeader, UpstreamAuthCipher: svc.UpstreamAuthCipher,
+                    RequiredClientHeader: svc.RequiredClientHeader,
 					Cluster: route.Upstream.ID, Priority: routePriority(route.MatchType, route.Path),
 					TimeoutMs: timeout, Grpc: listener.Protocol == "grpc",
 				}
 				vhost.Routes = append(vhost.Routes, pkgRoute)
+				if listener.Protocol == "http" {
+					central := pkgRoute
+					central.Name = "central-" + pkgRoute.Name
+					central.Path = "/api/" + svc.Name + route.Path
+					central.RewritePrefix = route.Path
+					central.Priority = routePriority(central.MatchType, central.Path)
+					public.Routes = append(public.Routes, central)
+					if route.Path == "/" && route.MatchType == model.MatchPrefix {
+						alias := central
+						alias.Name += "-no-slash"
+						alias.MatchType = model.MatchExact
+						alias.Path = "/api/" + svc.Name
+						alias.Priority = routePriority(alias.MatchType, alias.Path)
+						public.Routes = append(public.Routes, alias)
+					}
+				}
 				if item.Cluster == "" {
 					item.Cluster = route.Upstream.ID
 				}
@@ -1034,6 +1074,15 @@ func buildPackage(revision int64, fleetID string, services []model.Service, list
 			if httpFamily(listener.Protocol) {
 				pkg.VirtualHosts = append(pkg.VirtualHosts, vhost)
 			}
+		}
+		if listener.Protocol == "http" {
+			sort.SliceStable(public.Routes, func(i, j int) bool {
+				if public.Routes[i].Priority != public.Routes[j].Priority {
+					return public.Routes[i].Priority < public.Routes[j].Priority
+				}
+				return public.Routes[i].Path < public.Routes[j].Path
+			})
+			pkg.VirtualHosts = append(pkg.VirtualHosts, public)
 		}
 		pkg.Listeners = append(pkg.Listeners, item)
 	}
@@ -1080,7 +1129,7 @@ func inputFromService(svc model.Service) model.ServiceInput {
 			endpoints = append(endpoints, model.EndpointInput{Address: ep.Address, Port: ep.Port, Weight: ep.Weight})
 		}
 		in.Routes = append(in.Routes, model.RouteInput{
-			Path: route.Path, MatchType: route.MatchType, Methods: append([]string(nil), route.Methods...),
+			Path: route.Path, MatchType: route.MatchType, Methods: append([]string(nil), route.Methods...), RateLimitRPS: route.RateLimitRPS,
 			Upstream: model.UpstreamInput{
 				Name: route.Upstream.Name, Algorithm: route.Upstream.Algorithm,
 				ConnectTimeoutMs: route.Upstream.ConnectTimeoutMs, RequestTimeoutMs: route.Upstream.RequestTimeoutMs,
@@ -1150,7 +1199,7 @@ func isUnique(err error) bool {
 func scanNode(rows pgx.Rows, now time.Time) (model.Node, error) {
 	var node model.Node
 	var probe []byte
-	if err := rows.Scan(&node.ID, &node.FleetID, &node.Name, &node.Location, &node.DesiredRevision, &node.DeliveredRevision, &node.AckedRevision, &node.NackRevision, &node.NackDetail, &node.LastHeartbeatAt, &probe); err != nil {
+	if err := rows.Scan(&node.ID, &node.FleetID, &node.Name, &node.Location, &node.DesiredRevision, &node.DeliveredRevision, &node.AckedRevision, &node.NackRevision, &node.NackDetail, &node.LastHeartbeatAt, &probe, &node.Telemetry.Checks, &node.Telemetry.Denied, &node.Telemetry.HTTPRequests, &node.Telemetry.HTTP2xx, &node.Telemetry.HTTP4xx, &node.Telemetry.HTTP5xx, &node.Telemetry.WafMatches, &node.Telemetry.WafBlocked); err != nil {
 		return model.Node{}, err
 	}
 	node.Heartbeat = "unknown"

@@ -1,0 +1,53 @@
+# Single-host HTTPS test environment. The existing Caddy joins ai-network.
+# Run with the base compose file and --env-file .local/test.env.
+networks:
+  ingress:
+    external: true
+    name: ai-network
+
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${GATEWAY_DB_PASSWORD:?Run scripts/bootstrap-test.sh first}
+  api:
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://gateway:${GATEWAY_DB_PASSWORD}@postgres:5432/gateway?sslmode=disable
+      GATEWAY_TRY_URL: https://api1.mehmet.tech
+      GATEWAY_LAB_TARGETS: api1.mehmet.tech=backend-a,api2.mehmet.tech=backend-b
+      GATEWAY_PUBLIC_BASE_URL: https://api-gateway.mehmet.tech
+  agent:
+    restart: unless-stopped
+  agent-2:
+    restart: unless-stopped
+  envoy:
+    restart: unless-stopped
+  envoy-2:
+    restart: unless-stopped
+  edge:
+    restart: unless-stopped
+    networks:
+      data:
+      ingress:
+        aliases: [gateway-test-edge]
+  backend-a:
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: Catalog API
+  backend-b:
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: Orders API
+  web:
+    restart: unless-stopped
+    build:
+      target: production
+    volumes: !reset []
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    networks:
+      mgmt:
+      ingress:
+        aliases: [gateway-console]

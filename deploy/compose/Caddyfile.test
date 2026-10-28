@@ -1,0 +1,39 @@
+# Add these blocks to the existing Caddyfile, then validate and reload.
+# Only web and edge join ai-network; API, database and admin ports stay private.
+api-gateway.mehmet.tech {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        X-Frame-Options DENY
+        X-Robots-Tag "noindex, nofollow"
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+    request_body {
+        max_size 2MB
+    }
+    @agent_api path /gateway-api/api/v1/agent/*
+    handle @agent_api {
+        respond 404
+    }
+    handle /api/* {
+        reverse_proxy gateway-test-edge:10000
+    }
+    handle {
+        reverse_proxy gateway-console:3000
+    }
+}
+
+api1.mehmet.tech, api2.mehmet.tech {
+    header {
+        X-Content-Type-Options nosniff
+        X-Robots-Tag "noindex, nofollow"
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy gateway-test-edge:10000
+}

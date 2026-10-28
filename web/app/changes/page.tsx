@@ -30,17 +30,17 @@ export default function ChangesPage() {
       </div>
       {error ? <ErrorText>{error}</ErrorText> : null}
       {items === null && !error ? <p>Yükleniyor…</p> : null}
-      {items && items.length === 0 ? <p className="text-stone-600">Henüz hiçbir şey yayına alınmadı.</p> : null}
+      {items && items.length === 0 ? <p className="text-slate-600">Henüz hiçbir şey yayına alınmadı.</p> : null}
       <ul className="space-y-3">
         {items?.map((item, index) => (
           <li key={item.id}>
-            <Link href={`/changes/${item.id}`} className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300">
+            <Link href={`/changes/${item.id}`} className="block rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-teal-300">
               <span className="font-medium">
                 Sürüm {item.id}
                 {index === 0 ? " · en son" : ""}
               </span>
               <span className="mt-1 block">{item.summary}</span>
-              <span className="mt-1 block text-sm text-stone-600">
+              <span className="mt-1 block text-sm text-slate-600">
                 {item.createdBy} · {formatTime(item.createdAt, timeZone)}
               </span>
             </Link>

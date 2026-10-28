@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorText, Notice, PageTitle, Panel } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { Bootstrap } from "@/lib/types";
+import type { Bootstrap, LabTarget } from "@/lib/types";
 import { friendlyError, protocolText } from "@/lib/words";
 
 const localAddress: Record<string, string> = {
@@ -22,6 +22,7 @@ const localAddress: Record<string, string> = {
 export default function CertificatesPage() {
   const router = useRouter();
   const [data, setData] = useState<Bootstrap | null>(null);
+  const [targets,setTargets] = useState<LabTarget[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -29,6 +30,7 @@ export default function CertificatesPage() {
       router.replace("/login");
       return;
     }
+    api<{targets:LabTarget[]}>("/api/v1/lab").then(result=>setTargets(result.targets)).catch(()=>{});
     api<Bootstrap>("/api/v1/bootstrap")
       .then(setData)
       .catch((err: unknown) => setError(friendlyError(err, "Dinleyiciler alınamadı")));
@@ -36,11 +38,12 @@ export default function CertificatesPage() {
 
   return (
     <section>
-      <PageTitle title="Sertifikalar ve dinleyiciler" text="Her bağlantı türünün kendi kapısı vardır. HTTPS kapısı yerel geliştirme sertifikasını kullanır." />
+      <PageTitle title="Sertifikalar ve dinleyiciler" text="Public TLS girişi ile Envoy’un yerel test dinleyicilerini ayrı takip edin." />
       {error ? <ErrorText>{error}</ErrorText> : null}
       {!data && !error ? <p>Yükleniyor…</p> : null}
       {data ? (
-        <div className="space-y-4">
+        <div className="mt-6 space-y-4">
+          {targets.length > 0 && <Panel><h2 className="text-lg font-medium">Public HTTPS · Caddy</h2><p className="mt-2 text-sm leading-6 text-slate-500">Panel ve test alan adlarının public TLS sertifikalarını Caddy otomatik olarak alır ve yeniler. İstekler bu sunucudaki özel Docker ağı üzerinden HTTP ile Envoy’a aktarılır.</p><ul className="mt-4 flex flex-wrap gap-2">{targets.map(target=><li key={target.host} className="rounded-lg border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-800">{target.host}</li>)}</ul><p className="mt-3 text-xs text-slate-400">Aşağıdaki yerel CA, public alan adlarında kullanılan sertifika değildir. Public sertifika bitiş tarihleri bu sürümde panele aktarılmıyor.</p></Panel>}
           <Panel className="space-y-2">
             <h2 className="text-lg font-medium">Yerel sertifika</h2>
             <p className="text-sm text-slate-600">

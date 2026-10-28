@@ -1,69 +1,23 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-
+import { Icon, IconName } from "@/components/icon";
+import { useLanguage } from "@/lib/i18n";
 export function PageTitle({ title, text }: { title: string; text?: string }) {
-  return (
-    <header className="mb-6">
-      <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-      {text ? <p className="mt-2 max-w-3xl text-base text-slate-600">{text}</p> : null}
-    </header>
-  );
+  return <header><h1 className="page-title">{title}</h1>{text && <p className="page-subtitle max-w-3xl">{text}</p>}</header>;
 }
-
-export function Notice({ children }: { children: ReactNode }) {
-  return <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">{children}</p>;
-}
-
-export function Success({ children }: { children: ReactNode }) {
-  return <p className="rounded-lg border border-teal-300 bg-teal-50 px-3 py-2 text-sm text-teal-950">{children}</p>;
-}
-
-export function ErrorText({ children }: { children: ReactNode }) {
-  return (
-    <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
-      {children}
-    </p>
-  );
-}
-
-export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>{children}</div>;
-}
-
+export function Notice({ children }: { children: ReactNode }) { return <div className="gc-notice"><Icon name="info" className="mt-0.5 shrink-0" size={16} /><div>{children}</div></div>; }
+export function Success({ children }: { children: ReactNode }) { return <div role="status" className="gc-notice gc-success"><Icon name="check" className="mt-0.5 shrink-0" size={16} /><div>{children}</div></div>; }
+export function ErrorText({ children }: { children: ReactNode }) { return <div role="alert" className="gc-notice gc-error"><Icon name="info" className="mt-0.5 shrink-0" size={16} /><div>{children}</div></div>; }
+export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) { return <div className={`gc-panel p-6 ${className}`}>{children}</div>; }
 export function Badge({ value }: { value: string }) {
-  const styles: Record<string, string> = {
-    fresh: "bg-teal-100 text-teal-950",
-    stale: "bg-red-100 text-red-950",
-    unknown: "bg-stone-200 text-stone-800",
-    draft: "bg-amber-100 text-amber-950",
-    active: "bg-teal-100 text-teal-950",
-  };
-  const labels: Record<string, string> = {
-    fresh: "çalışıyor",
-    stale: "ulaşılamıyor",
-    unknown: "bilinmiyor",
-    draft: "taslak, yayında değil",
-    active: "yayında",
-  };
-  return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[value] ?? styles.unknown}`}>{labels[value] ?? value}</span>;
+  const {t}=useLanguage();
+  const tone = ({fresh:"ok",stale:"bad",unknown:"off",draft:"wait",active:"ok"} as Record<string,string>)[value] ?? "off";
+  const label = ({fresh:"Bağlı",stale:"Güncel değil",unknown:"Bilinmiyor",draft:"Taslak",active:"Yayımlandı"} as Record<string,string>)[value] ?? value;
+  return <span className={`status-pill status-${tone}`}>{t(label)}</span>;
 }
-
-export function Dot({ tone }: { tone: "ok" | "wait" | "bad" | "off" }) {
-  const color = { ok: "bg-teal-600", wait: "bg-amber-500", bad: "bg-red-600", off: "bg-stone-400" }[tone];
-  return <span aria-hidden className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${color}`} />;
+export function Dot({ tone }: { tone: "ok" | "wait" | "bad" | "off" }) { const color = {ok:"bg-teal-500",wait:"bg-amber-500",bad:"bg-red-500",off:"bg-slate-400"}[tone]; return <span aria-hidden className={`mr-2 inline-block h-1.5 w-1.5 rounded-full ${color}`} />; }
+export function PrimaryButton({ children, className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button {...props} className={`btn-primary ${className}`}>{children}</button>; }
+export function SecondaryButton({ children, className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) { return <button {...props} className={`btn-secondary ${className}`}>{children}</button>; }
+export function MetricCard({ label, value, detail, icon }: { label: string; value: ReactNode; detail: string; icon: IconName }) {
+  return <div className="gc-panel metric-card"><div className="flex items-center justify-between gap-2"><span className="text-xs text-slate-500">{label}</span><span className="metric-icon"><Icon name={icon} size={17} /></span></div><div className="metric-value">{value ?? <span className="skeleton inline-block h-8 w-12" />}</div><p className="mt-3 text-[10px] text-slate-400">{detail}</p></div>;
 }
-
-export function PrimaryButton({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button {...props} className={`rounded-lg bg-blue-600 px-4 py-2 font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 ${props.className ?? ""}`}>
-      {children}
-    </button>
-  );
-}
-
-export function SecondaryButton({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
-    <button {...props} className={`rounded-lg border border-slate-200 bg-white px-4 py-2 font-medium disabled:opacity-50 ${props.className ?? ""}`}>
-      {children}
-    </button>
-  );
-}
+export function EmptyState({ children }: { children: ReactNode }) { return <div className="empty-state"><Icon name="layers" className="mx-auto mb-3 text-slate-300" size={28} />{children}</div>; }

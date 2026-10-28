@@ -10,6 +10,9 @@ const (
 	StatusDraft  = "draft"
 	StatusActive = "active"
 
+	AuthPublic = "public"
+	AuthAPIKey = "api_key"
+
 	MatchPrefix = "prefix"
 	MatchExact  = "exact"
 
@@ -36,6 +39,7 @@ type ServiceInput struct {
 }
 
 type RouteInput struct {
+	RateLimitRPS int `json:"rateLimitRps"`
 	Path      string        `json:"path"`
 	MatchType string        `json:"matchType"`
 	Methods   []string      `json:"methods"`
@@ -57,6 +61,19 @@ type EndpointInput struct {
 }
 
 type Service struct {
+	WafMode string `json:"wafMode"`
+	IPAllowlist []string `json:"ipAllowlist"`
+	IPDenylist []string `json:"ipDenylist"`
+	RateLimitRPS int `json:"rateLimitRps"`
+	UpstreamAuthMode string `json:"upstreamAuthMode"`
+	UpstreamAuthUsername string `json:"upstreamAuthUsername"`
+	UpstreamAuthHeader string `json:"upstreamAuthHeader"`
+	RequiredClientHeader string `json:"requiredClientHeader"`
+	UpstreamAuthCipher string `json:"-"`
+	UpstreamAuthConfigured bool `json:"upstreamAuthConfigured"`
+	AuthMode string `json:"authMode"`
+	AuthKeyHash string `json:"-"`
+	GatewayBaseURL string `json:"gatewayBaseUrl,omitempty"`
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
@@ -76,6 +93,7 @@ type Service struct {
 }
 
 type Route struct {
+	RateLimitRPS int `json:"rateLimitRps"`
 	ID        string   `json:"id"`
 	Path      string   `json:"path"`
 	MatchType string   `json:"matchType"`
@@ -108,6 +126,7 @@ type Listener struct {
 }
 
 type Node struct {
+	Telemetry NodeTelemetry `json:"telemetry"`
 	ID                string     `json:"id"`
 	FleetID           string     `json:"fleetId"`
 	Name              string     `json:"name"`
@@ -123,6 +142,16 @@ type Node struct {
 	Probes            []Probe    `json:"probes"`
 }
 
+type NodeTelemetry struct {
+    WafMatches uint64 `json:"wafMatches"`
+    WafBlocked uint64 `json:"wafBlocked"`
+    HTTPRequests uint64 `json:"httpRequests"`
+    HTTP2xx uint64 `json:"http2xx"`
+    HTTP4xx uint64 `json:"http4xx"`
+    HTTP5xx uint64 `json:"http5xx"`
+	Checks uint64 `json:"checks"`
+	Denied uint64 `json:"denied"`
+}
 type Probe struct {
 	Host      string `json:"host"`
 	Path      string `json:"path"`
@@ -183,6 +212,18 @@ type PkgVHost struct {
 }
 
 type PkgRoute struct {
+	ServiceID string `json:"serviceId,omitempty"`
+	WafMode string `json:"wafMode,omitempty"`
+	IPAllowlist []string `json:"ipAllowlist,omitempty"`
+	IPDenylist []string `json:"ipDenylist,omitempty"`
+	RateLimitRPS int `json:"rateLimitRps,omitempty"`
+	UpstreamAuthMode string `json:"upstreamAuthMode,omitempty"`
+	UpstreamAuthUsername string `json:"upstreamAuthUsername,omitempty"`
+	UpstreamAuthHeader string `json:"upstreamAuthHeader,omitempty"`
+	UpstreamAuthCipher string `json:"upstreamAuthCipher,omitempty"`
+	RequiredClientHeader string `json:"requiredClientHeader,omitempty"`
+	AuthKeyHash string `json:"authKeyHash,omitempty"`
+	RewritePrefix string `json:"rewritePrefix,omitempty"`
 	Name      string   `json:"name"`
 	MatchType string   `json:"matchType"`
 	Path      string   `json:"path"`

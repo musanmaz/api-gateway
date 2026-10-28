@@ -23,6 +23,7 @@ export const actionText: Record<string, string> = {
 export type NodeState = { tone: "ok" | "wait" | "bad" | "off"; text: string };
 
 export function nodeState(node: NodeInfo, revision?: number | null): NodeState {
+  if (node.heartbeat === "unknown") return { tone: "off", text: "İlk heartbeat bekleniyor" };
   if (node.heartbeat !== "fresh") return { tone: "bad", text: "Ulaşılamıyor" };
   const target = revision ?? node.desiredRevision;
   if (target == null) return { tone: "off", text: "Henüz yayın yok" };

@@ -28,7 +28,9 @@ export function TryPanel({ hostname, path, tryUrl, revision, web }: { hostname: 
     };
   }, []);
 
-  const command = `curl -H 'Host: ${hostname}' ${tryUrl || "http://GATEWAY_ADRESI"}${path}`;
+  const publicHTTPS = tryUrl.startsWith("https://");
+  const publicURL = `https://${hostname}${path}`;
+  const command = publicHTTPS ? `curl -sS '${publicURL}'` : `curl -H 'Host: ${hostname}' '${tryUrl || "http://GATEWAY_ADRESI"}${path}'`;
 
   return (
     <Panel className="space-y-4">
@@ -63,8 +65,7 @@ export function TryPanel({ hostname, path, tryUrl, revision, web }: { hostname: 
         <div className="rounded-xl bg-stone-50 p-3 text-sm">
           <p className="font-medium">Kendi bilgisayarınızdan denemek için</p>
           <p className="mt-1 text-stone-600">
-            Terminalde bu komutu çalıştırın. Tarayıcıya <code>{tryUrl || "gateway adresi"}</code> yazarsanız &quot;404&quot; görürsünüz: tarayıcı <code>{hostname}</code> adını göndermez, gateway de tanımadığı adlara
-            yanıt vermez.
+            {publicHTTPS ? <>Alan adınız gateway girişine çözülüyorsa <a className="text-teal-700 underline" href={publicURL} target="_blank" rel="noreferrer">HTTPS adresini açın</a> veya komutu çalıştırın. TLS doğrulaması alan adıyla yapılır.</> : <>Terminalde Host başlığını koruyan bu komutu kullanın. Gateway IP’sini doğrudan açmak, tanımlı alan adı gönderilmediği için 404 döndürebilir.</>}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="block overflow-x-auto rounded-lg bg-stone-900 px-3 py-2 text-stone-100">{command}</code>

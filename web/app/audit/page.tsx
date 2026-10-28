@@ -24,15 +24,15 @@ export default function AuditPage() {
       <PageTitle title="İşlem kaydı" text="Kim, ne zaman, ne yaptı." />
       {error ? <ErrorText>{error}</ErrorText> : null}
       {items === null && !error ? <p>Yükleniyor…</p> : null}
-      {items && items.length === 0 ? <p className="text-stone-600">Henüz işlem yok.</p> : null}
+      {items && items.length === 0 ? <p className="text-slate-600">Henüz işlem yok.</p> : null}
       <ul className="space-y-2">
         {items?.map((item) => (
-          <li key={item.id} className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
+          <li key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
             <p>
               <span className="font-medium">{actionText[item.action] ?? item.action}</span> · {item.actor}
               {item.result !== "ok" ? ` · ${item.result}` : ""}
             </p>
-            <p className="text-stone-600">
+            <p className="text-slate-600">
               {formatTime(item.createdAt, timeZone)} · {item.target}
             </p>
           </li>
